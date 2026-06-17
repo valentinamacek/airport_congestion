@@ -1,0 +1,16 @@
+# ============================================================
+#  Airport Congestion Analytics — Python dependencies
+#  Used by: verify scripts, opensky producer, flink job
+# ============================================================
+
+# Kafka client (producer + admin)
+kafka-python==2.0.2
+
+# PostgreSQL driver
+psycopg2-binary==2.9.9
+
+# HTTP client (OpenSky API polling)
+requests==2.31.0
+
+# PyFlink — must match the Flink version in the Docker image (1.18.1)
+apache-flink==1.18.1

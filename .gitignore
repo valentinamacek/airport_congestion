@@ -1,0 +1,17 @@
+# Virtual environment
+.venv/
+
+# Environment variables (contains credentials — never commit this)
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Data files (downloaded OpenSky CSV, can be large)
+data/*.csv
+data/*.gz
+
+# macOS
+.DS_Store
