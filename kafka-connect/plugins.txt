@@ -1,0 +1,8 @@
+# Kafka Connect plugins to install on first start.
+# Lines starting with # are ignored.
+#
+# FilePulse — reads TSV files into the registrations topic
+https://github.com/streamthoughts/kafka-connect-file-pulse/releases/download/v2.15.0/streamthoughts-kafka-connect-file-pulse-2.15.0.zip
+#
+# OpenSky — local folder in kafka-connect/plugins/
+kafka-connect-opensky

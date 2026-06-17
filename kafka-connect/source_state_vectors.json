@@ -1,0 +1,21 @@
+{
+    "connector.class": "com.github.nbuesing.kafka.connect.opensky.OpenSkySourceConnector",
+    "tasks.max": "1",
+    "topic": "state_vectors",
+    "bounding.boxes": "${OPENSKY_API_BBOX}",
+    "interval": "${OPENSKY_API_INTERVAL}",
+    "opensky.url": "${OPENSKY_API_URL}",
+    "opensky.timeout.connect": "30s",
+    "opensky.timeout.read": "30s",
+    "transforms": "flatten,rename",
+    "transforms.flatten.type": "org.apache.kafka.connect.transforms.Flatten$Value",
+    "transforms.flatten.delimiter": "_",
+    "transforms.rename.type": "org.apache.kafka.connect.transforms.ReplaceField$Value",
+    "transforms.rename.renames": "location_lat:latitude,location_lon:longitude",
+    "topic.creation.default.partitions": 3,
+    "topic.creation.default.replication.factor": 1,
+    "topic.creation.default.cleanup.policy": "delete",
+    "topic.creation.default.retention.ms": 7200000,
+    "topic.creation.default.segment.ms": 3600000,
+    "topic.creation.default.compression.type": "gzip"
+}
