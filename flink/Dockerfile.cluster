@@ -1,0 +1,18 @@
+FROM flink:1.18.1-scala_2.12-java11
+
+USER root
+
+# Install Python 3.10 — required by TaskManager to run PyFlink operators
+RUN apt-get update && \
+    apt-get install -y python3.10 python3.10-dev python3-pip curl && \
+    ln -sf /usr/bin/python3.10 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3.10 /usr/bin/python && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir apache-flink==1.18.1
+
+# Download Kafka connector JAR
+RUN curl -fSL \
+    https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar \
+    -o /opt/flink/lib/flink-sql-connector-kafka-3.1.0-1.18.jar

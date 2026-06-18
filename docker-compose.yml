@@ -185,6 +185,67 @@ services:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
 
+  # ── Flink JobManager ──────────────────────────────────────
+  flink-jobmanager:
+    build:
+      context: ./flink
+      dockerfile: Dockerfile.cluster
+    container_name: flink-jobmanager
+    restart: unless-stopped
+    ports:
+      - "8081:8081"       # Flink Web UI
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        rest.bind-address: 0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8081/overview"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ── Flink TaskManager ─────────────────────────────────────
+  flink-taskmanager:
+    build:
+      context: ./flink
+      dockerfile: Dockerfile.cluster
+    container_name: flink-taskmanager
+    restart: unless-stopped
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+
+  # ── PyFlink Job ───────────────────────────────────────────
+  flink-job:
+    build:
+      context: ./flink
+      dockerfile: Dockerfile
+    container_name: flink-job
+    restart: on-failure
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP:   kafka:29092
+      POSTGRES_HOST:     postgres
+      POSTGRES_PORT:     5432
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Tell PyFlink where the JobManager is
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+
 volumes:
   postgres_data:
   grafana_data:
