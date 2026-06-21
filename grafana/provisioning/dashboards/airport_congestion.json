@@ -1,0 +1,238 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["airport", "congestion"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Airport Congestion Analytics",
+  "uid": "airport-congestion",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "bargauge",
+      "title": "Congestion Score — busiest airports now",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "airport-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "airport-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT airport_icao, congestion_score FROM airport_metrics WHERE window_start = (SELECT max(window_start) FROM airport_metrics) ORDER BY congestion_score DESC;"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "orange", "value": 50 },
+              { "color": "red", "value": 70 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "barchart",
+      "title": "Arrivals vs Departures (latest minute)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "airport-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "airport-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT airport_icao, inbound_count AS arrivals, outbound_count AS departures FROM airport_metrics WHERE window_start = (SELECT max(window_start) FROM airport_metrics) ORDER BY airport_icao;"
+        }
+      ],
+      "options": {
+        "xField": "airport_icao",
+        "orientation": "auto",
+        "stacking": "none",
+        "showValue": "auto",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "legend": { "showLegend": true, "placement": "bottom", "displayMode": "list" },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 1, "fillOpacity": 80, "gradientMode": "none" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "arrivals" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "departures" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Congestion over time",
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "airport-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "airport-postgres" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(window_start, '1m'), airport_icao AS metric, avg(congestion_score) AS congestion FROM airport_metrics WHERE $__timeFilter(window_start) GROUP BY 1, airport_icao ORDER BY 1;"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "placement": "right", "displayMode": "list", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": { "type": "linear" }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "bargauge",
+      "title": "Runway load (on / near-ground aircraft)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "airport-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "airport-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT airport_icao, runway_load FROM airport_metrics WHERE window_start = (SELECT max(window_start) FROM airport_metrics) AND runway_load > 0 ORDER BY runway_load DESC;"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "lcd",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "geomap",
+      "title": "Regional congestion heatmap",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "airport-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "airport-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH coords (icao, lat, lon, name) AS (VALUES ('LOWW',48.1103,16.5697,'Vienna'),('LOWS',47.7933,13.0043,'Salzburg'),('LOWG',46.9911,15.4396,'Graz'),('LOWI',47.2602,11.3440,'Innsbruck'),('EDDF',50.0264,8.5431,'Frankfurt'),('EDDM',48.3537,11.7750,'Munich'),('EDDS',48.6899,9.2220,'Stuttgart'),('EDDL',51.2895,6.7668,'Dusseldorf'),('LSZH',47.4647,8.5492,'Zurich'),('LSGG',46.2380,6.1089,'Geneva'),('LIMC',45.6306,8.7281,'Milan Malpensa'),('LIME',45.6739,9.7042,'Milan Bergamo'),('LIML',45.4453,9.2767,'Milan Linate'),('LIPZ',45.5053,12.3519,'Venice'),('LJLJ',46.2237,14.4576,'Ljubljana'),('LKPR',50.1008,14.2600,'Prague'),('EPWA',52.1657,20.9671,'Warsaw'),('LHBP',47.4298,19.2610,'Budapest')) SELECT c.name, c.lat AS latitude, c.lon AS longitude, m.congestion_score FROM airport_metrics m JOIN coords c ON c.icao = m.airport_icao WHERE m.window_start = (SELECT max(window_start) FROM airport_metrics);"
+        }
+      ],
+      "options": {
+        "view": { "id": "coords", "lat": 47.5, "lon": 12, "zoom": 5 },
+        "controls": {
+          "showZoom": true,
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showScale": false,
+          "showDebug": false,
+          "showMeasure": false
+        },
+        "basemap": { "type": "default", "name": "Layer 0", "config": {} },
+        "tooltip": { "mode": "details" },
+        "layers": [
+          {
+            "type": "markers",
+            "name": "Airports",
+            "config": {
+              "style": {
+                "size": { "field": "congestion_score", "fixed": 5, "min": 6, "max": 30 },
+                "color": { "field": "congestion_score", "fixed": "dark-red" },
+                "opacity": 0.75,
+                "symbol": { "mode": "fixed", "fixed": "img/icons/marker/circle.svg" },
+                "textConfig": { "fontSize": 12, "offsetX": 0, "offsetY": -10, "textAlign": "center", "textBaseline": "middle" },
+                "text": { "field": "name", "fixed": "" }
+              },
+              "showLegend": true
+            },
+            "location": { "mode": "coords", "latitude": "latitude", "longitude": "longitude" },
+            "tooltip": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "continuous-GrYlRd" } },
+        "overrides": []
+      }
+    }
+  ]
+}
