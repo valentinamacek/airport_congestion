@@ -1,39 +1,27 @@
-FROM flink:1.18.1-scala_2.12-java11
+# Single image for the whole Flink side, mirroring the lab setup.
+# The base image already bundles Flink + PyFlink, so the SAME image can run as:
+#   - the JobManager   (docker-compose command: jobmanager)
+#   - the TaskManager  (docker-compose command: taskmanager)
+#   - the job submitter (default CMD below: flink run ...)
+ARG FLINK_IMAGE=fracorco/pyflink:1.18.1-scala_2.12-java11
+FROM ${FLINK_IMAGE}
 
-USER root
-
-# Install Python 3.10 + build tools
-RUN apt-get update && \
-    apt-get install -y \
-        python3.10 \
-        python3.10-venv \
-        python3.10-dev \
-        python3-pip \
-        curl \
-        gcc \
-        g++ \
-        && \
-    ln -sf /usr/bin/python3.10 /usr/bin/python3 && \
-    ln -sf /usr/bin/python3.10 /usr/bin/python && \
-    rm -rf /var/lib/apt/lists/*
-
-# Upgrade pip
-RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
-
-# Install PyFlink and dependencies
-RUN pip3 install --no-cache-dir \
-    "apache-flink==1.18.1" \
-    "psycopg2-binary==2.9.9" \
-    "requests==2.31.0"
-
-# Download Kafka connector JAR into Flink's lib folder
-RUN curl -fSL \
-    https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar \
-    -o /opt/flink/lib/flink-sql-connector-kafka-3.1.0-1.18.jar
-
+# Install Python deps first (better Docker cache), then copy the source.
+# psycopg2-binary is needed by the TaskManager because the PostgreSQL sink
+# runs there — that is why all three services build from this same image.
 WORKDIR /app
-COPY flink_job.py .
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
+COPY requirements.txt .
+RUN pip install -U pip && \
+    pip install -r requirements.txt
+COPY . .
 
-CMD ["/app/entrypoint.sh"]
+# Default command = submit the job to the session cluster.
+#   PROCESSOR_JOBMANAGER     host:port of the JobManager REST endpoint
+#   PROCESSOR_IMPLEMENTATION the -py entrypoint script
+#   PROCESSOR_ARGS           extra CLI args forwarded to the job (e.g. --rewind)
+# Overridden by `command: jobmanager` / `command: taskmanager` in docker-compose.
+CMD flink run \
+    -m ${PROCESSOR_JOBMANAGER:-flink-jobmanager:8081} \
+    -pyfs kafka_utils.py \
+    -py ${PROCESSOR_IMPLEMENTATION:-flink_job.py} \
+    $PROCESSOR_ARGS
