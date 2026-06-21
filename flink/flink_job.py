@@ -12,7 +12,7 @@ Scope:
   - Aggregate per airport in a 1-minute tumbling window (+ a simple congestion score)
   - Write the aggregated metrics to PostgreSQL (airport_metrics table)
 
-How it runs (same pattern as the lab `processor.py`):
+How it runs (same pattern as the lab `processor.py` in lab_flink_weather):
   - The job is SUBMITTED to a running Flink session cluster with
         flink run -m flink-jobmanager:8081 -pyfs kafka_utils.py -py flink_job.py
     (see flink/Dockerfile and docker-compose.yml — the flink-job service does this).

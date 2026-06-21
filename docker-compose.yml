@@ -181,19 +181,26 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER:     ${GRAFANA_ADMIN_USER}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      # Consumed by grafana/provisioning/datasources/postgres.yml
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
 
   # ── Flink JobManager ──────────────────────────────────────
+  # All three Flink services build from the SAME image (flink/Dockerfile),
+  # exactly like the lab. The image bundles Flink + PyFlink + our deps.
   flink-jobmanager:
     build:
       context: ./flink
-      dockerfile: Dockerfile.cluster
+      dockerfile: Dockerfile
+    image: airport-pyflink:latest          # build once, reuse for the other two
     container_name: flink-jobmanager
     restart: unless-stopped
     ports:
-      - "8081:8081"       # Flink Web UI
+      - "8081:8081"       # Flink Web UI + job submission REST endpoint
     command: jobmanager
     environment:
       FLINK_PROPERTIES: |
@@ -209,7 +216,8 @@ services:
   flink-taskmanager:
     build:
       context: ./flink
-      dockerfile: Dockerfile.cluster
+      dockerfile: Dockerfile
+    image: airport-pyflink:latest          # same tag/context -> built from cache, instant
     container_name: flink-taskmanager
     restart: unless-stopped
     depends_on:
@@ -221,11 +229,16 @@ services:
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: 2
 
-  # ── PyFlink Job ───────────────────────────────────────────
+  # ── PyFlink Job (submitter) ───────────────────────────────
+  # Uses the image's default CMD: `flink run -m flink-jobmanager:8081 ...`.
+  # Submits the job to the session cluster, then exits (the job keeps running
+  # on the cluster). flink_job.py also calls wait_for_topics() so it blocks
+  # until state_vectors exists.
   flink-job:
     build:
       context: ./flink
       dockerfile: Dockerfile
+    image: airport-pyflink:latest          # same tag/context -> built from cache, instant
     container_name: flink-job
     restart: on-failure
     depends_on:
@@ -235,16 +248,18 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     environment:
+      PROCESSOR_JOBMANAGER:   flink-jobmanager:8081
+      PROCESSOR_IMPLEMENTATION: flink_job.py
+      # Captured at submit time and serialised into the job graph:
       KAFKA_BOOTSTRAP:   kafka:29092
       POSTGRES_HOST:     postgres
       POSTGRES_PORT:     5432
       POSTGRES_DB:       ${POSTGRES_DB}
       POSTGRES_USER:     ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      # Tell PyFlink where the JobManager is
-      FLINK_PROPERTIES: |
-        jobmanager.rpc.address: flink-jobmanager
 
 volumes:
   postgres_data:
