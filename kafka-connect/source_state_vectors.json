@@ -5,8 +5,6 @@
     "bounding.boxes": "${OPENSKY_API_BBOX}",
     "interval": "${OPENSKY_API_INTERVAL}",
     "opensky.url": "${OPENSKY_API_URL}",
-    "opensky.username": "${OPENSKY_USERNAME}",
-    "opensky.password": "${OPENSKY_PASSWORD}",
     "opensky.timeout.connect": "30s",
     "opensky.timeout.read": "30s",
     "transforms": "flatten,rename",
