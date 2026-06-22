@@ -40,7 +40,7 @@
           "datasource": { "type": "postgres", "uid": "airport-postgres" },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT airport_icao, congestion_score FROM airport_metrics WHERE window_start = (SELECT max(window_start) FROM airport_metrics) ORDER BY congestion_score DESC;"
+          "rawSql": "SELECT a.name AS airport, m.congestion_score FROM airport_metrics m JOIN airports a ON a.icao_code = m.airport_icao WHERE m.window_start = (SELECT max(window_start) FROM airport_metrics) ORDER BY m.congestion_score DESC;"
         }
       ],
       "options": {
@@ -78,11 +78,11 @@
           "datasource": { "type": "postgres", "uid": "airport-postgres" },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT airport_icao, inbound_count AS arrivals, outbound_count AS departures FROM airport_metrics WHERE window_start = (SELECT max(window_start) FROM airport_metrics) ORDER BY airport_icao;"
+          "rawSql": "SELECT a.name AS airport, m.inbound_count AS arrivals, m.outbound_count AS departures FROM airport_metrics m JOIN airports a ON a.icao_code = m.airport_icao WHERE m.window_start = (SELECT max(window_start) FROM airport_metrics) ORDER BY a.name;"
         }
       ],
       "options": {
-        "xField": "airport_icao",
+        "xField": "airport",
         "orientation": "auto",
         "stacking": "none",
         "showValue": "auto",
@@ -120,7 +120,7 @@
           "datasource": { "type": "postgres", "uid": "airport-postgres" },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT $__timeGroupAlias(window_start, '1m'), airport_icao AS metric, avg(congestion_score) AS congestion FROM airport_metrics WHERE $__timeFilter(window_start) GROUP BY 1, airport_icao ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroupAlias(m.window_start, '1m'), a.name AS metric, avg(m.congestion_score) AS congestion FROM airport_metrics m JOIN airports a ON a.icao_code = m.airport_icao WHERE $__timeFilter(m.window_start) GROUP BY 1, a.name ORDER BY 1;"
         }
       ],
       "options": {
@@ -157,7 +157,7 @@
           "datasource": { "type": "postgres", "uid": "airport-postgres" },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT airport_icao, runway_load FROM airport_metrics WHERE window_start = (SELECT max(window_start) FROM airport_metrics) AND runway_load > 0 ORDER BY runway_load DESC;"
+          "rawSql": "SELECT a.name AS airport, m.runway_load FROM airport_metrics m JOIN airports a ON a.icao_code = m.airport_icao WHERE m.window_start = (SELECT max(window_start) FROM airport_metrics) AND m.runway_load > 0 ORDER BY m.runway_load DESC;"
         }
       ],
       "options": {
@@ -194,7 +194,7 @@
           "datasource": { "type": "postgres", "uid": "airport-postgres" },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH coords (icao, lat, lon, name) AS (VALUES ('LOWW',48.1103,16.5697,'Vienna'),('LOWS',47.7933,13.0043,'Salzburg'),('LOWG',46.9911,15.4396,'Graz'),('LOWI',47.2602,11.3440,'Innsbruck'),('EDDF',50.0264,8.5431,'Frankfurt'),('EDDM',48.3537,11.7750,'Munich'),('EDDS',48.6899,9.2220,'Stuttgart'),('EDDL',51.2895,6.7668,'Dusseldorf'),('LSZH',47.4647,8.5492,'Zurich'),('LSGG',46.2380,6.1089,'Geneva'),('LIMC',45.6306,8.7281,'Milan Malpensa'),('LIME',45.6739,9.7042,'Milan Bergamo'),('LIML',45.4453,9.2767,'Milan Linate'),('LIPZ',45.5053,12.3519,'Venice'),('LJLJ',46.2237,14.4576,'Ljubljana'),('LKPR',50.1008,14.2600,'Prague'),('EPWA',52.1657,20.9671,'Warsaw'),('LHBP',47.4298,19.2610,'Budapest')) SELECT c.name, c.lat AS latitude, c.lon AS longitude, m.congestion_score FROM airport_metrics m JOIN coords c ON c.icao = m.airport_icao WHERE m.window_start = (SELECT max(window_start) FROM airport_metrics);"
+          "rawSql": "SELECT a.name, a.latitude, a.longitude, m.congestion_score FROM airport_metrics m JOIN airports a ON a.icao_code = m.airport_icao WHERE m.window_start = (SELECT max(window_start) FROM airport_metrics);"
         }
       ],
       "options": {
