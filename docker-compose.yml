@@ -126,7 +126,7 @@ services:
       CONNECT_LOG4J_ROOT_LOGLEVEL: WARN
       # OpenSky connector config (used in source_state_vectors.json)
       OPENSKY_API_BBOX: "${BBOX_LAMIN} ${BBOX_LAMAX} ${BBOX_LOMIN} ${BBOX_LOMAX}"
-      OPENSKY_API_INTERVAL: "15"
+      OPENSKY_API_INTERVAL: "${OPENSKY_API_INTERVAL}"
       OPENSKY_API_URL: "https://opensky-network.org/api/"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8083/connectors"]
