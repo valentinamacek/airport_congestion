@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS inbound_aircraft (
     on_ground     BOOLEAN           DEFAULT FALSE,
     manufacturer  VARCHAR(80),
     model         VARCHAR(80),
+    operator      VARCHAR(20),
     registration  VARCHAR(20),
     distance_km   DOUBLE PRECISION,
     last_seen     TIMESTAMPTZ       NOT NULL,

@@ -84,6 +84,8 @@
       "options": {
         "xField": "airport",
         "orientation": "auto",
+        "xTickLabelRotation": -45,
+        "xTickLabelSpacing": 0,
         "stacking": "none",
         "showValue": "auto",
         "groupWidth": 0.7,
@@ -194,7 +196,7 @@
           "datasource": { "type": "postgres", "uid": "airport-postgres" },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT a.name AS airport, i.callsign, i.icao24, round(i.altitude_m) AS altitude_m, round(i.velocity_ms) AS velocity_ms, round(i.distance_km, 1) AS distance_km, i.on_ground FROM inbound_aircraft i JOIN airports a ON a.icao_code = i.airport_icao WHERE i.last_seen > now() - interval '2 minutes' ORDER BY a.name, i.distance_km;"
+          "rawSql": "SELECT a.name AS airport, i.callsign, i.model AS type, i.operator, i.icao24, round(i.altitude_m) AS altitude_m, round(i.velocity_ms) AS velocity_ms, round(i.distance_km, 1) AS distance_km, i.on_ground FROM inbound_aircraft i JOIN airports a ON a.icao_code = i.airport_icao WHERE i.last_seen > now() - interval '2 minutes' ORDER BY a.name, i.distance_km;"
         }
       ],
       "options": {
@@ -222,7 +224,7 @@
           "datasource": { "type": "postgres", "uid": "airport-postgres" },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT a.name AS airport, h.callsign, h.icao24, round(h.altitude_m) AS altitude_m, round(h.holding_duration_min, 1) AS holding_min FROM holding_aircraft h JOIN airports a ON a.icao_code = h.airport_icao WHERE h.last_seen > now() - interval '2 minutes' AND h.holding_duration_min >= 1 ORDER BY h.holding_duration_min DESC;"
+          "rawSql": "SELECT a.name AS airport, h.callsign, i.model AS type, i.operator, h.icao24, round(h.altitude_m) AS altitude_m, round(h.holding_duration_min, 1) AS holding_min FROM holding_aircraft h JOIN airports a ON a.icao_code = h.airport_icao LEFT JOIN inbound_aircraft i ON i.icao24 = h.icao24 AND i.airport_icao = h.airport_icao WHERE h.last_seen > now() - interval '2 minutes' AND h.holding_duration_min >= 1 ORDER BY h.holding_duration_min DESC;"
         }
       ],
       "options": {
