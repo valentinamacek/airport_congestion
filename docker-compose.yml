@@ -1,8 +1,5 @@
-version: "3.9"
-
 # ─────────────────────────────────────────────────────────────
 #  Airport Congestion Analytics — Infrastructure
-#  Step 1: get all services healthy before writing any code
 #  All secrets/config come from .env
 # ─────────────────────────────────────────────────────────────
 
