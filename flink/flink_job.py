@@ -4,26 +4,23 @@ flink_job.py
 ────────────
 PyFlink stream processing job for RealTime Airport Congestion Analytics.
 
-Pipeline:
+Pipeline (single stream, fanned out to PostgreSQL sinks):
 
-  state_vectors ─► ParseAndEnrich ─┐
-                                   │ key_by(icao24)
-  registrations ─► ParseReg ───────┤ key_by(icao24)
-                                   ▼
-                           RegistrationJoin            (KeyedCoProcessFunction:
-                           (enrich with manufacturer/   keeps each aircraft's
-                            model/registration)         metadata in keyed state)
-                                   │  enriched stream
-        ┌──────────────────────────┼──────────────────────────┐
-        ▼                          ▼                          ▼
-  window(airport) ─► agg ─► MetricsSink     filter(is_inbound)    filter(is_holding)
-        ├─ airport_metrics                  └─ InboundAircraftSink └─ HoldingAircraftSink
-        └─ congestion_history                  (incl. registration)
+  state_vectors (Kafka)
+        │
+        ▼
+  ParseAndEnrich            parse JSON, assign nearest airport, classify each aircraft
+        │
+        ├──► 1-min tumbling window ──► AirportWindowAggregator ──► MetricsSink
+        │         (per airport)                                   ├─ airport_metrics
+        │                                                         └─ congestion_history
+        ├──► filter(is_inbound) ──► InboundAircraftSink ──► inbound_aircraft (upsert)
+        └──► filter(is_holding) ──► HoldingAircraftSink ──► holding_aircraft (upsert)
 
-The registrations topic carries static aircraft metadata (icao24 -> registration,
-manufacturer, model), loaded once by the FilePulse connector. It is read from the
-beginning so the keyed state is populated; the live state-vector stream then looks
-that state up per aircraft.
+NOTE on enrichment: aircraft type / operator are NOT joined here. The OpenSky aircraft
+database is ~480k static rows; streaming it through a keyed join overwhelmed the job.
+Instead, that metadata lives in a PostgreSQL table (aircraft_metadata) and is joined at
+query time by Grafana on icao24. This keeps the streaming job small and fast.
 
 Submitted to a Flink session cluster:
     flink run -m flink-jobmanager:8081 -pyfs kafka_utils.py -py flink_job.py
@@ -44,10 +41,7 @@ from pyflink.common.time import Time
 from pyflink.common.serialization import SimpleStringSchema
 from pyflink.common.watermark_strategy import WatermarkStrategy
 from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.datastream.functions import (
-    MapFunction, ProcessWindowFunction, KeyedCoProcessFunction,
-)
-from pyflink.datastream.state import ValueStateDescriptor
+from pyflink.datastream.functions import MapFunction, ProcessWindowFunction
 from pyflink.datastream.window import TumblingProcessingTimeWindows
 from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
 
@@ -74,9 +68,8 @@ PG_CONFIG = {
     "password": os.getenv("POSTGRES_PASSWORD", "airport123"),
 }
 
+# Only airports inside the OpenSky bounding box (lat 45-49, lon 6-17).
 AIRPORTS = [
-    # Only airports inside the OpenSky bounding box (lat 45-49, lon 6-17).
-    # Airports outside the box would never receive traffic, so they are omitted.
     {"icao": "LOWW", "lat": 48.1103, "lon": 16.5697},
     {"icao": "LOWS", "lat": 47.7933, "lon": 13.0043},
     {"icao": "LOWG", "lat": 46.9911, "lon": 15.4396},
@@ -113,7 +106,7 @@ def nearest_airport(lat, lon, radius_km):
     return None, best_dist
 
 
-# ── Parse state vectors ───────────────────────────────────────────────────────
+# ── Parse + enrich + classify ─────────────────────────────────────────────────
 class ParseAndEnrich(MapFunction):
     def __init__(self, radius_km):
         self.radius_km = radius_km
@@ -150,7 +143,6 @@ class ParseAndEnrich(MapFunction):
         runway_load  = 1 if (on_ground or altitude < 1500) else 0
 
         return {
-            "kind":         "state",
             "icao24":       icao24,
             "callsign":     callsign,
             "airport_icao": airport_icao,
@@ -168,62 +160,7 @@ class ParseAndEnrich(MapFunction):
             "is_departure": is_departure,
             "is_holding":   is_holding,
             "runway_load":  runway_load,
-            # filled in by RegistrationJoin
-            "model":        None,
-            "operator":     None,
         }
-
-
-# ── Parse registrations (static aircraft metadata) ────────────────────────────
-class ParseRegistration(MapFunction):
-    """
-    Parse one record from the registrations topic.
-
-    The source TSV has exactly: icao24, typecode, operatoricao, built.
-    So we expose aircraft type (typecode) and operator (operatoricao);
-    there is no registration or manufacturer column in this data.
-    """
-    def map(self, raw):
-        try:
-            r = loads(raw)
-        except Exception:
-            return None
-
-        icao24 = (r.get("icao24") or "").strip().lower()
-        if not icao24:
-            return None
-
-        typecode = (r.get("typecode") or "").strip() or None
-        operator = (r.get("operatoricao") or "").strip() or None
-        return {
-            "kind":     "reg",
-            "icao24":   icao24,
-            "model":    typecode,     # aircraft type code, e.g. BE36
-            "operator": operator,     # operator ICAO, e.g. DLH
-        }
-
-
-# ── Keyed join: enrich state vectors with registration metadata ───────────────
-class RegistrationJoin(KeyedCoProcessFunction):
-    """
-    Keyed by icao24. Stream 1 = state vectors, Stream 2 = registrations.
-    Registration records update per-aircraft keyed state; state vectors read it.
-    """
-    def open(self, runtime_context):
-        self.meta = runtime_context.get_state(
-            ValueStateDescriptor("aircraft_meta", Types.PICKLED_BYTE_ARRAY())
-        )
-
-    def process_element1(self, sv, ctx):     # state vector
-        m = self.meta.value()
-        if m:
-            sv["model"]    = m.get("model")
-            sv["operator"] = m.get("operator")
-        yield sv
-
-    def process_element2(self, reg, ctx):    # registration metadata
-        self.meta.update(reg)                # store; emit nothing
-        return None
 
 
 # ── Window aggregation ────────────────────────────────────────────────────────
@@ -346,12 +283,10 @@ class InboundAircraftSink(_PgSink):
     SQL = """
         INSERT INTO inbound_aircraft
             (icao24, airport_icao, callsign, latitude, longitude,
-             altitude_m, velocity_ms, heading, on_ground,
-             model, operator, distance_km, last_seen)
+             altitude_m, velocity_ms, heading, on_ground, distance_km, last_seen)
         VALUES
             (%(icao24)s, %(airport_icao)s, %(callsign)s, %(latitude)s, %(longitude)s,
-             %(altitude_m)s, %(velocity_ms)s, %(heading)s, %(on_ground)s,
-             %(model)s, %(operator)s, %(distance_km)s, now())
+             %(altitude_m)s, %(velocity_ms)s, %(heading)s, %(on_ground)s, %(distance_km)s, now())
         ON CONFLICT (icao24, airport_icao) DO UPDATE SET
             callsign    = EXCLUDED.callsign,
             latitude    = EXCLUDED.latitude,
@@ -360,8 +295,6 @@ class InboundAircraftSink(_PgSink):
             velocity_ms = EXCLUDED.velocity_ms,
             heading     = EXCLUDED.heading,
             on_ground   = EXCLUDED.on_ground,
-            model       = COALESCE(EXCLUDED.model, inbound_aircraft.model),
-            operator    = COALESCE(EXCLUDED.operator, inbound_aircraft.operator),
             distance_km = EXCLUDED.distance_km,
             last_seen   = now();
     """
@@ -407,7 +340,7 @@ def main():
     )
     log = logging.getLogger("flink-job")
 
-    wait_for_topics(args.bootstrap_servers, "state_vectors", "registrations")
+    wait_for_topics(args.bootstrap_servers, "state_vectors")
 
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_parallelism(1)
@@ -428,37 +361,13 @@ def main():
         .build()
     )
 
-    # Registrations are static metadata: always read from the beginning.
-    reg_source = (
-        KafkaSource.builder()
-        .set_bootstrap_servers(args.bootstrap_servers)
-        .set_topics("registrations")
-        .set_group_id("flink-registrations")
-        .set_starting_offsets(KafkaOffsetsInitializer.earliest())
-        .set_value_only_deserializer(SimpleStringSchema())
-        .build()
-    )
-
-    state_stream = (
+    enriched = (
         env.from_source(state_source, WatermarkStrategy.no_watermarks(), "state_vectors_source")
         .map(ParseAndEnrich(args.radius_km), output_type=Types.PICKLED_BYTE_ARRAY())
         .filter(lambda x: x is not None)
     )
 
-    reg_stream = (
-        env.from_source(reg_source, WatermarkStrategy.no_watermarks(), "registrations_source")
-        .map(ParseRegistration(), output_type=Types.PICKLED_BYTE_ARRAY())
-        .filter(lambda x: x is not None)
-    )
-
-    # Enrich each aircraft with its registration metadata (keyed join on icao24).
-    enriched = (
-        state_stream.key_by(lambda x: x["icao24"])
-        .connect(reg_stream.key_by(lambda r: r["icao24"]))
-        .process(RegistrationJoin(), output_type=Types.PICKLED_BYTE_ARRAY())
-    )
-
-    # Branch 1: per-airport window metrics
+    # Branch 1: per-airport window metrics -> airport_metrics + congestion_history
     (
         enriched
         .key_by(lambda x: x["airport_icao"])
@@ -467,7 +376,7 @@ def main():
         .map(MetricsSink(PG_CONFIG), output_type=Types.PICKLED_BYTE_ARRAY())
     )
 
-    # Branch 2: inbound aircraft detail (with registration metadata)
+    # Branch 2: inbound aircraft detail
     (
         enriched
         .filter(lambda a: a["is_inbound"])
