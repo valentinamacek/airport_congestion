@@ -1,93 +1,129 @@
-# Real-Time Airport Congestion
+# RealTime Airport Congestion and Traffic Flow Analytics
 
+An end-to-end streaming pipeline that monitors live aircraft activity around major
+airports in the Alpine Europe region. Live aircraft positions are ingested from the
+OpenSky Network, processed with Apache Flink, stored in PostgreSQL, and visualised on
+live Grafana dashboards (congestion score, arrivals/departures, holding-pattern
+detection, a regional heatmap, and more).
 
-
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Architecture (at a glance)
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.inf.unibz.it/Valentina.Macek/airport_congestion.git
-git branch -M main
-git push -uf origin main
+OpenSky REST API ──► Kafka Connect ──► Kafka (state_vectors) ──► PyFlink job ──► PostgreSQL ──► Grafana
+                     (OpenSky source)                            (windows + classify)   ▲
+                                                                                        │
+                  data/registrations.tsv ──────────────────────────────────────────────┘
+                  (static aircraft metadata, loaded once into PostgreSQL on first start)
 ```
 
-## Integrate with your tools
+The live state vectors flow through Kafka and Flink. The static aircraft metadata
+(type / operator) is **not** streamed — it is loaded once from `data/registrations.tsv`
+into a PostgreSQL lookup table and joined with the live data at query time by Grafana.
 
-* [Set up project integrations](https://gitlab.inf.unibz.it/Valentina.Macek/airport_congestion/-/settings/integrations)
+## Prerequisites
 
-## Collaborate with your team
+- **Docker** and **Docker Compose** (Docker Desktop on Windows/Mac).
+- That's it — every component runs in a container; nothing else needs to be installed.
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## Quick start
 
-## Test and Deploy
+From the project root:
 
-Use the built-in continuous integration in GitLab.
+```bash
+docker compose up -d
+```
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+The first run builds the Flink image and pulls the other images, so it can take a few
+minutes. Compose starts the services in dependency order (Kafka, PostgreSQL, etc. become
+healthy before the dependent services start). On first start, PostgreSQL automatically
+creates its schema and loads the aircraft metadata from `data/registrations.tsv` — no
+manual data-loading step is required.
 
-***
+Check everything is up:
 
-# Editing this README
+```bash
+docker compose ps
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+Wait until the core services show `healthy`. `kafka-init` and `flink-job` are one-shot
+containers and will show `Exited (0)` — that is expected (they create the topic and
+submit the Flink job, then exit).
 
-## Suggestions for a good README
+## Accessing the system
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+| Service        | URL                     | Credentials (from `.env`)              |
+|----------------|-------------------------|----------------------------------------|
+| Grafana        | http://localhost:3000   | `GRAFANA_ADMIN_USER` / `..._PASSWORD`  |
+| Flink Web UI   | http://localhost:8081   | —                                      |
+| pgAdmin        | http://localhost:5050   | `PGADMIN_EMAIL` / `PGADMIN_PASSWORD`   |
+| Kafka Connect  | http://localhost:8083   | —                                      |
+| PostgreSQL     | localhost:5432          | `POSTGRES_USER` / `POSTGRES_PASSWORD`  |
 
-## Name
-Choose a self-explaining name for your project.
+The dashboard is in Grafana under **Dashboards → Airport Analytics → Airport Congestion
+Analytics**. Give it a few minutes of live data before the panels fill in (metrics are
+aggregated over one-minute windows).
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## Configuration
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+All configuration lives in `.env` (read automatically by Docker Compose). The values that
+matter most:
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+- `BBOX_LAMIN / LAMAX / LOMIN / LOMAX` — the geographic bounding box polled from OpenSky.
+- `OPENSKY_API_INTERVAL` — polling interval in seconds (default `60`).
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+The airports tracked by the Flink job are defined in `flink/flink_job.py` (`AIRPORTS`),
+and should sit inside the bounding box.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+## A note on the OpenSky rate limit
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+The pipeline uses OpenSky's **anonymous** access, which is rate-limited by a daily credit
+budget charged in proportion to the queried area. A large bounding box or frequent polling
+can exhaust the budget and return `429 Too Many Requests`, which pauses ingestion. If the
+dashboards stop receiving new data:
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+- Check the connector logs: `docker logs kafka-connect --tail 20` (look for `429`).
+- If rate-limited, stop the connector to let the budget recover:
+  `docker compose stop kafka-connect`, wait, then `docker compose start kafka-connect`.
+- A smaller bounding box and a longer `OPENSKY_API_INTERVAL` make the budget last longer.
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+The pipeline itself (Kafka → Flink → PostgreSQL → Grafana) keeps running regardless; only
+the inflow of new live data depends on OpenSky.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## Project layout
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```
+.
+├── docker-compose.yml          # the whole stack
+├── .env                        # configuration (credentials, bounding box, interval)
+├── data/
+│   └── registrations.tsv       # static aircraft metadata (loaded into PostgreSQL)
+├── flink/
+│   ├── flink_job.py            # the PyFlink stream-processing job
+│   ├── kafka_utils.py
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── flink-sql-connector-kafka-3.1.0-1.18.jar
+├── kafka-connect/
+!   ├── kafka-connect-opensky/
+!   ├── plugins/
+│   ├── entrypoint.sh
+│   └── source_state_vectors.json
+├── postgres/
+│   └── init/                   # *.sql run automatically on first start
+│       ├── 01_schema.sql
+│       └── 02_aircraft_metadata.sql
+├── grafana/
+│   └── provisioning/           # datasource + dashboard (provisioned automatically)
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## Stopping
 
-## License
-For open source projects, say how it is licensed.
+```bash
+docker compose stop      # pause everything (data is preserved)
+docker compose start     # resume
+docker compose down      # remove containers (named volumes / data preserved)
+```
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Do **not** use `docker compose down -v` unless you intend to wipe all stored data — that
+deletes the PostgreSQL and Grafana volumes, after which the next `up` reloads the schema
+and metadata from scratch.
