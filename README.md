@@ -1,24 +1,32 @@
 # RealTime Airport Congestion and Traffic Flow Analytics
 
+Individual project for Real-Time Big Data Processing, Free University of Bozen-Bolzano, June 2026· 
+Full report: real_time_report.pdf
+
 An end-to-end streaming pipeline that monitors live aircraft activity around major
 airports in the Alpine Europe region. Live aircraft positions are ingested from the
 OpenSky Network, processed with Apache Flink, stored in PostgreSQL, and visualised on
 live Grafana dashboards (congestion score, arrivals/departures, holding-pattern
 detection, a regional heatmap, and more).
 
+## Technologies
+
+Docker Compose, Apache Kafka, Kafka Connect, PyFlink, PostgreSQL, Grafana
+
+
 ## Architecture (at a glance)
 
+For each aircraft, the PyFlink job assigns it to its nearest airport (Haversine distance, 50 km radius), classifies its behaviour (inbound, outbound, holding, runway activity), and aggregates per-airport metrics over one-minute tumbling windows. The static aircraft metadata (type and operator) is not streamed. It is loaded once into a PostgreSQL table and joined with the live data by Grafana at query time.
+
+## Congestion score
+
+Computed per airport and window:
+
 ```
-OpenSky REST API ──► Kafka Connect ──► Kafka (state_vectors) ──► PyFlink job ──► PostgreSQL ──► Grafana
-                     (OpenSky source)                            (windows + classify)   ▲
-                                                                                        │
-                  data/registrations.tsv ──────────────────────────────────────────────┘
-                  (static aircraft metadata, loaded once into PostgreSQL on first start)
+score = 2.0·n_inbound + 1.5·n_outbound + 2.5·n_holding + 1.0·n_runway + 0.5·n_total
 ```
 
-The live state vectors flow through Kafka and Flink. The static aircraft metadata
-(type / operator) is **not** streamed — it is loaded once from `data/registrations.tsv`
-into a PostgreSQL lookup table and joined with the live data at query time by Grafana.
+Holding and inbound aircraft weigh the most, since aircraft converging on or stacked above an airport are the clearest sign of pressure. The weights are configurable and were chosen empirically, not derived from operational data. The score is an informative estimate based on public position data, not an air-traffic-control tool.
 
 ## Prerequisites
 
@@ -89,6 +97,20 @@ dashboards stop receiving new data:
 The pipeline itself (Kafka → Flink → PostgreSQL → Grafana) keeps running regardless; only
 the inflow of new live data depends on OpenSky.
 
+## Design decisions and lessons learned
+
+- **Metadata join moved out of Flink.** The first version joined about 500,000 aircraft records with the live stream inside Flink, which overwhelmed the job. Loading the static table into PostgreSQL and joining at query time kept the streaming job small and fast.
+- **Docker from the start.** Running PyFlink locally on Windows caused dependency conflicts, so the whole stack is containerised and reproducible with one command.
+- **Configuration as code.** The database schema and the Grafana data source and dashboard are provisioned from files, so the system can be rebuilt from scratch.
+- **Idempotent writes.** Flink writes to PostgreSQL with upserts (`INSERT ... ON CONFLICT DO UPDATE`), so a job restart doesn't create duplicates.
+
+## Limitations and possible improvements
+
+- Anonymous OpenSky access is rate-limited because the Kafka Connect source connector does not support OpenSky's OAuth2 login. A small token-fetching component would allow authenticated, higher limits.
+- Holding detection uses a single-snapshot approximation. A stateful Flink operator with timers and a circling heuristic would reduce false positives.
+- Windows use processing time. Event-time windows with watermarks would be more accurate under delays.
+- Missing: periodic cleanup of per-aircraft tables and alerting when congestion crosses a threshold.
+
 ## Project layout
 
 ```
@@ -127,3 +149,9 @@ docker compose down      # remove containers (named volumes / data preserved)
 Do **not** use `docker compose down -v` unless you intend to wipe all stored data — that
 deletes the PostgreSQL and Grafana volumes, after which the next `up` reloads the schema
 and metadata from scratch.
+
+## Credits
+
+The OpenSky source connector in `kafka-connect/` was taken from the course labs (Real-Time Big Data Processing) and is used here unmodified. Flight data comes from the [OpenSky Network](https://opensky-network.org); aircraft metadata from the OpenSky aircraft database.
+
+
