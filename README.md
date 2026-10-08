@@ -1,7 +1,7 @@
 # RealTime Airport Congestion and Traffic Flow Analytics
 
 Individual project for Real-Time Big Data Processing, Free University of Bozen-Bolzano, June 2026· 
-Full report: real_time_report.pdf
+Full report: docs/real_time_report.pdf
 
 An end-to-end streaming pipeline that monitors live aircraft activity around major
 airports in the Alpine Europe region. Live aircraft positions are ingested from the
@@ -9,12 +9,16 @@ OpenSky Network, processed with Apache Flink, stored in PostgreSQL, and visualis
 live Grafana dashboards (congestion score, arrivals/departures, holding-pattern
 detection, a regional heatmap, and more).
 
+![Overview of UI](docs/overview.png)
+
 ## Technologies
 
 Docker Compose, Apache Kafka, Kafka Connect, PyFlink, PostgreSQL, Grafana
 
 
 ## Architecture (at a glance)
+
+![System architecture](docs/BIG_DATA_PROJECT.drawio%20(3)%20(2).png)
 
 For each aircraft, the PyFlink job assigns it to its nearest airport (Haversine distance, 50 km radius), classifies its behaviour (inbound, outbound, holding, runway activity), and aggregates per-airport metrics over one-minute tumbling windows. The static aircraft metadata (type and operator) is not streamed. It is loaded once into a PostgreSQL table and joined with the live data by Grafana at query time.
 
@@ -27,6 +31,8 @@ score = 2.0·n_inbound + 1.5·n_outbound + 2.5·n_holding + 1.0·n_runway + 0.5�
 ```
 
 Holding and inbound aircraft weigh the most, since aircraft converging on or stacked above an airport are the clearest sign of pressure. The weights are configurable and were chosen empirically, not derived from operational data. The score is an informative estimate based on public position data, not an air-traffic-control tool.
+
+![Heatmap where size and colour reflect current congestion score](docs/figure_heatmap_evening%20(1).png)
 
 ## Prerequisites
 
